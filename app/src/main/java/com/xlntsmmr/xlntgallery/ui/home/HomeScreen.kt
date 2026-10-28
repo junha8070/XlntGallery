@@ -1,11 +1,21 @@
 
 package com.xlntsmmr.xlntgallery.ui.home
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -16,7 +26,15 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Badge
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Pets
+import androidx.compose.material.icons.outlined.Receipt
+import androidx.compose.material.icons.outlined.Sailing
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -35,9 +53,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xlntsmmr.xlntgallery.ui.components.ShowToast
-
-private val MainBlue = Color(0xFF005AC2)
+import com.xlntsmmr.xlntgallery.ui.components.MainBlue
+import com.xlntsmmr.xlntgallery.ui.components.showToast
 
 // ① 전체 홈 화면
 @Composable
@@ -52,7 +69,7 @@ fun HomeScreen() {
         val query = searchState.text.toString().trim()
 
         if (query.isNotEmpty()) {
-            ShowToast(context = context, message = "검색어: $query")
+            showToast(context = context, message = "검색어: $query")
         }
     }
 
@@ -77,7 +94,7 @@ fun HomeScreen() {
                 state = searchState,
                 onSearch = runSearch,
                 onVoiceClick = {
-                    ShowToast(context, "음석 검색")
+                    showToast(context, "음석 검색")
                 }
             )
 
@@ -247,7 +264,7 @@ private data class SearchSuggestion(
 
 private val suggestions = listOf(
     SearchSuggestion("신분증", Icons.Outlined.Badge),
-    SearchSuggestion("영수증", Icons.Outlined.ReceiptLong),
+    SearchSuggestion("영수증", Icons.Outlined.Receipt),
     SearchSuggestion("강아지", Icons.Outlined.Pets),
     SearchSuggestion("작년 여행", Icons.Outlined.Sailing),
     SearchSuggestion("계약서", Icons.Outlined.Description)

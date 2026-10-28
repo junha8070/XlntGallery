@@ -3,7 +3,7 @@ package com.xlntsmmr.xlntgallery.ui.components
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ArrowBackIosNew
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.MoreVert
@@ -42,7 +42,7 @@ fun GalleryTopBar(
                 if (showBackButton) {
                     IconButton(onClick = onBackClick) {
                         Icon(
-                            imageVector = Icons.Outlined.ArrowBack,
+                            imageVector = Icons.Outlined.ArrowBackIosNew,
                             contentDescription = "뒤로 가기"
                         )
                     }
