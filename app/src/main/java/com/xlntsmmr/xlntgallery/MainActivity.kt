@@ -8,6 +8,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.xlntsmmr.xlntgallery.data.gemini.GeminiTaggingRunner
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.xlntsmmr.xlntgallery.ui.components.display_bottom_left_radius
 import com.xlntsmmr.xlntgallery.ui.components.display_bottom_right_radius
 import com.xlntsmmr.xlntgallery.ui.components.display_top_left_radius
@@ -35,6 +41,17 @@ class MainActivity : ComponentActivity() {
         }
 
         printScreenCornerRadius()
+
+        // Gemini Nano 사진 태깅: 앱이 화면에 보이는(RESUMED) 동안만 실행.
+        // 화면을 벗어나면 repeatOnLifecycle이 코루틴을 자동 취소 → 다시 돌아오면 이어서 실행
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (true) {
+                    GeminiTaggingRunner.run(applicationContext)
+                    delay(30_000)   // 새로 OCR이 끝난 사진이 생겼을 수 있으니 30초 뒤 다시 확인
+                }
+            }
+        }
     }
 
     private fun printScreenCornerRadius() {

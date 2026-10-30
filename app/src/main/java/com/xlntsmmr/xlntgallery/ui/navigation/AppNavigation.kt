@@ -39,12 +39,16 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.xlntsmmr.xlntgallery.ui.components.GalleryTopBar
 import com.xlntsmmr.xlntgallery.ui.components.display_bottom_right_radius
+import com.xlntsmmr.xlntgallery.ui.detail.PhotoDetailScreen
+import com.xlntsmmr.xlntgallery.ui.detail.PhotoDetailViewModel
 import com.xlntsmmr.xlntgallery.ui.home.HomeScreen
 import com.xlntsmmr.xlntgallery.ui.settings.SettingsScreen
 
@@ -75,6 +79,9 @@ fun AppNavigation() {
     val currentRoute =
         navBackStackEntry?.destination?.route ?: "home"
 
+    // 상세 화면 경로는 "detail/{photoId}" 형태라 앞부분으로 판단
+    val isDetail = currentRoute.startsWith("detail")
+
     // 전체 화면을 겹쳐서 배치할 최상위 Box
     Box(
         modifier = Modifier.fillMaxSize()
@@ -88,23 +95,8 @@ fun AppNavigation() {
             // bottomBar는 사용하지 않음!
 
             topBar = {
-                when (currentRoute) {
-
-                    "contents" -> {
-                        GalleryTopBar(
-                            title = "콘텐츠",
-                            showNotification = true
-                        )
-                    }
-
-                    "settings" -> {
-                        GalleryTopBar(
-                            title = "설정",
-                            showNotification = true
-                        )
-                    }
-
-                    "detail" -> {
+                when {
+                    isDetail -> {
                         GalleryTopBar(
                             title = "사진 상세",
                             showBackButton = true,
@@ -113,6 +105,20 @@ fun AppNavigation() {
                             onBackClick = {
                                 navController.popBackStack()
                             }
+                        )
+                    }
+
+                    currentRoute == "contents" -> {
+                        GalleryTopBar(
+                            title = "콘텐츠",
+                            showNotification = true
+                        )
+                    }
+
+                    currentRoute == "settings" -> {
+                        GalleryTopBar(
+                            title = "설정",
+                            showNotification = true
                         )
                     }
                 }
@@ -132,7 +138,11 @@ fun AppNavigation() {
             ) {
 
                 composable("home") {
-                    HomeScreen()
+                    HomeScreen(
+                        onPhotoClick = { photo ->
+                            navController.navigate("detail/${photo.id}")
+                        }
+                    )
                 }
 
                 composable("contents") {
@@ -143,14 +153,20 @@ fun AppNavigation() {
                     SettingsScreen()
                 }
 
-                composable("detail") {
-                    SampleScreen("사진 상세 화면")
+                // {photoId} 자리에 사진 ID가 들어옴 → PhotoDetailViewModel의 SavedStateHandle로 전달
+                composable(
+                    route = "detail/{${PhotoDetailViewModel.ARG_PHOTO_ID}}",
+                    arguments = listOf(
+                        navArgument(PhotoDetailViewModel.ARG_PHOTO_ID) { type = NavType.LongType }
+                    )
+                ) {
+                    PhotoDetailScreen()
                 }
             }
         }
 
         // 3. 하단 Island를 콘텐츠 위에 띄움
-        if (currentRoute != "detail") {
+        if (!isDetail) {
 
             Box(
                 modifier = Modifier.align(
