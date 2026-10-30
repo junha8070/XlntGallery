@@ -13,17 +13,25 @@ import androidx.core.content.ContextCompat
  *  - Android 14 이상 (API 34+)  : READ_MEDIA_IMAGES + READ_MEDIA_VISUAL_USER_SELECTED
  *    (14부터는 사용자가 "일부 사진만 허용"을 고를 수 있음)
  */
-fun photoPermissions(): Array<String> = when {
-    Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> arrayOf(
-        Manifest.permission.READ_MEDIA_IMAGES,
-        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
-    )
-    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(
-        Manifest.permission.READ_MEDIA_IMAGES
-    )
-    else -> arrayOf(
-        Manifest.permission.READ_EXTERNAL_STORAGE
-    )
+fun photoPermissions(): Array<String> {
+    val permissions = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> listOf(
+            Manifest.permission.READ_MEDIA_IMAGES,
+            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+        )
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> listOf(
+            Manifest.permission.READ_MEDIA_IMAGES
+        )
+        else -> listOf(
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        )
+    }
+    // Android 10+: 사진 속 촬영 위치(GPS)를 읽으려면 별도 권한 필요
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        (permissions + Manifest.permission.ACCESS_MEDIA_LOCATION).toTypedArray()
+    } else {
+        permissions.toTypedArray()
+    }
 }
 
 /** 사진을 하나라도 읽을 수 있는 상태인지 (전체 허용 or 일부 허용) */
@@ -41,3 +49,9 @@ fun hasPhotoPermission(context: Context): Boolean {
             granted(Manifest.permission.READ_EXTERNAL_STORAGE)
     }
 }
+
+/** 사진 속 촬영 위치를 읽을 수 있는지 (Android 9 이하는 권한 개념이 없어서 항상 true) */
+fun hasMediaLocationPermission(context: Context): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED

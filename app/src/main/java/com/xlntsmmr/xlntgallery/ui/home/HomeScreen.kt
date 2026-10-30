@@ -5,6 +5,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.remember
+import androidx.compose.material3.CircularProgressIndicator
+import com.xlntsmmr.xlntgallery.data.search.MatchType
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -20,6 +24,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,6 +73,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +82,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -90,12 +100,16 @@ import coil3.compose.AsyncImage
 import com.xlntsmmr.xlntgallery.data.Photo
 import com.xlntsmmr.xlntgallery.ui.components.MainBlue
 import com.xlntsmmr.xlntgallery.ui.components.showToast
+import com.xlntsmmr.xlntgallery.ui.permission.hasMediaLocationPermission
 import com.xlntsmmr.xlntgallery.ui.permission.hasPhotoPermission
 import com.xlntsmmr.xlntgallery.ui.permission.photoPermissions
 
 // ① 전체 홈 화면
 @Composable
-fun HomeScreen(viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory)) {
+fun HomeScreen(
+    onPhotoClick: (Photo) -> Unit,   // 사진을 눌렀을 때 (어디로 이동할지는 내비게이션이 결정)
+    viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory)
+) {
 
     // 검색창에 입력된 내용을 기억하는 객체
     val searchState = rememberTextFieldState()
@@ -108,14 +122,9 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Fact
     // 포커스(=키보드) 제어용
     val focusManager = LocalFocusManager.current
 
-    // 검색 실행: 키보드만 내리고 검색 모드는 유지 (지금은 테스트용 토스트)
+    // 검색 실행: 검색은 입력하는 동안 자동으로 되므로, 엔터는 키보드만 내림
     val runSearch = {
-        val query = searchState.text.toString().trim()
         focusManager.clearFocus()
-
-        if (query.isNotEmpty()) {
-            showToast(context = context, message = "검색어: $query")
-        }
     }
 
     var selectedFilters by rememberSaveable {
@@ -130,6 +139,25 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Fact
     }
 
     val photos by viewModel.photos.collectAsStateWithLifecycle()
+    val searchResult by viewModel.searchState.collectAsStateWithLifecycle()
+    val indexStatus by viewModel.indexStatus.collectAsStateWithLifecycle()
+
+    // 검색창 글자가 바뀔 때마다 ViewModel에 전달 (snapshotFlow: Compose 상태 → Flow)
+    LaunchedEffect(searchState) {
+        snapshotFlow { searchState.text.toString() }.collect { viewModel.onQueryChange(it) }
+    }
+    // 필터 칩 → 검색 방식
+    LaunchedEffect(selectedFilters) {
+        viewModel.setFilters(
+            selectedFilters.map { filter ->
+                when (filter) {
+                    SearchFilterType.FILE_NAME -> MatchType.FILE_NAME
+                    SearchFilterType.OCR -> MatchType.OCR
+                    SearchFilterType.AI -> MatchType.AI
+                }
+            }.toSet()
+        )
+    }
 
     // ── 사진 권한 ─────────────────────────────────────
     // 권한 요청 창을 띄우고, 사용자가 응답하면 아래 콜백이 호출됨
@@ -151,7 +179,9 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Fact
     LaunchedEffect(Unit) {
         if (hasPhotoPermission(context)) {
             viewModel.loadPhotos()                    // 이미 허용됨 → 바로 불러오기
-        } else if (!permissionRequested) {
+        }
+        // 사진 권한이 없거나, 나중에 추가된 위치 권한(ACCESS_MEDIA_LOCATION)이 아직 없으면 요청
+        if (!permissionRequested && (!hasPhotoPermission(context) || !hasMediaLocationPermission(context))) {
             permissionRequested = true
             permissionLauncher.launch(photoPermissions())   // 요청 창 띄우기
         }
@@ -208,7 +238,6 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Fact
             Spacer(modifier = Modifier.height(14.dp))
 
             if (isSearching) {
-                // TODO: 다음 단계에서 SearchResults(fakeSearchResults)로 교체
                 SearchFilterRow(
                     selectedFilters = selectedFilters,
                     onToggle = { type ->
@@ -218,14 +247,49 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Fact
                     }
                 )
 
-                Text(
-                    text = "검색 결과 영역",
-                    fontSize = 13.sp,
-                    color = Color(0xFF9499A5)
+                IndexStatusBar(
+                    status = indexStatus,
+                    aiFilterOn = SearchFilterType.AI in selectedFilters
                 )
 
+                when (val result = searchResult) {
+                    // 검색어가 없으면 전체 사진
+                    SearchUiState.Idle -> PhotoGrid(
+                        photos = photos,
+                        onPhotoClick = onPhotoClick,
+                        modifier = Modifier.weight(1f)
+                    )
 
-                PhotoGrid(photos)
+                    SearchUiState.Searching -> Box(
+                        modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+                        contentAlignment = Alignment.Center
+                    ) { CircularProgressIndicator(color = MainBlue) }
+
+                    is SearchUiState.Results -> {
+                        ResultHeader(count = result.hits.size)
+                        if (result.hits.isEmpty()) {
+                            Text(
+                                text = "검색 결과가 없어요",
+                                fontSize = 14.sp,
+                                color = Color(0xFF9499A5),
+                                modifier = Modifier.padding(top = 40.dp)
+                            )
+                        } else {
+                            // 사진 ID → 뱃지 (검색에 걸린 방식)
+                            val badges = remember(result) {
+                                result.hits.associate { hit ->
+                                    hit.photo.id to hit.matches.joinToString(" · ") { it.label }
+                                }
+                            }
+                            PhotoGrid(
+                                photos = result.hits.map { it.photo },
+                                onPhotoClick = onPhotoClick,
+                                badge = { photo -> badges[photo.id] },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
 
             } else {
                 // 추천 검색어: 누르면 바로 검색 모드로
@@ -237,6 +301,55 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Fact
                 )
             }
         }
+    }
+}
+
+// 검색 결과 개수
+@Composable
+private fun ResultHeader(count: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("검색 결과", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF16181D))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text("${count}장", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MainBlue)
+    }
+}
+
+// 사진 분석 진행 상황 (분석이 끝났고 AI 모델도 있으면 숨김)
+@Composable
+private fun IndexStatusBar(status: IndexStatus, aiFilterOn: Boolean) {
+    val download = status.modelDownload
+    val message = when {
+        status.total == 0 && status.isRunning -> "사진 목록을 불러오는 중…"
+        status.isRunning || status.geminiRunning ->
+            "사진 분석 중 · 글자 ${status.ocrDone}/${status.total}" +
+                (if (status.siglipDone > 0) " · SigLIP ${status.siglipDone}" else "") +
+                (if (status.clipDone > 0) " · CLIP ${status.clipDone}" else "") +
+                (if (status.geminiTagged > 0 || status.geminiRunning) " · Gemini ${status.geminiTagged}" else "")
+        download != null && download >= 0f -> "AI 검색 모델 받는 중 ${(download * 100).toInt()}%"
+        download != null -> "Wi-Fi에 연결되면 AI 검색 모델을 받아요 (설정에서 모바일 데이터 허용 가능)"
+        aiFilterOn && !status.modelsReady -> "AI 검색 모델을 준비하고 있어요"
+        else -> null
+    } ?: return
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFFF0F3F8))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (status.isRunning || status.geminiRunning) {
+            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = MainBlue)
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Text(message, fontSize = 12.sp, color = Color(0xFF424956))
     }
 }
 
@@ -556,32 +669,99 @@ private fun SearchSuggestions(
 
 @Composable
 fun PhotoGrid(
-    photos: List<Photo>,                 // ← PhotoSearchResult → Photo
-    modifier: Modifier = Modifier
+    photos: List<Photo>,
+    onPhotoClick: (Photo) -> Unit,
+    modifier: Modifier = Modifier,
+    badge: (Photo) -> String? = { null }   // 사진 위에 표시할 글자 (검색 결과: "글자 인식" 등)
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        modifier = modifier,
-        // bottom 여백: 플로팅 하단바에 마지막 줄이 가려지지 않게
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 100.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        items(
-            items = photos,
-            key = { it.id }              // ← it.photo.id → it.id
-        ) { photo ->
-            AsyncImage(
-                model = photo.uri,
-                contentDescription = photo.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFFE5E7EB))   // 로딩 중에 보이는 회색 배경
-            )
+    BoxWithConstraints(modifier = modifier) {
+
+        // 1. 화면 너비로 기본 열 수 계산 (사진 한 칸 최소 180dp 기준)
+        //    폰(약 400dp) → 2열, 폴더블 펼침(약 700dp) → 3열, 태블릿 → 4~6열
+        val defaultColumns = (maxWidth / 180.dp).toInt().coerceIn(2, 6)
+
+        // 2. 현재 열 수. 접고 펼쳐서 defaultColumns가 바뀌면 그 값으로 다시 시작
+        var columns by rememberSaveable(defaultColumns) {
+            mutableIntStateOf(defaultColumns)
         }
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columns),
+            modifier = Modifier
+                .fillMaxSize()
+                .pinchToChangeColumns(
+                    onZoomIn = { columns = (columns - 1).coerceAtLeast(1) },  // 벌리기 → 크게
+                    onZoomOut = { columns = (columns + 1).coerceAtMost(8) }   // 오므리기 → 작게
+                ),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 100.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(items = photos, key = { it.id }) { photo ->
+                Box(
+                    modifier = Modifier
+                        .animateItem()          // 열 수가 바뀔 때 사진이 부드럽게 이동
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFFE5E7EB))
+                        .clickable { onPhotoClick(photo) }
+                ) {
+                    AsyncImage(
+                        model = photo.uri,
+                        contentDescription = photo.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    // 열이 많아 사진이 작으면 뱃지는 생략
+                    val label = if (columns <= 3) badge(photo) else null
+                    if (label != null) {
+                        Text(
+                            text = label,
+                            fontSize = 11.sp,
+                            color = Color.White,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(8.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MainBlue.copy(alpha = 0.85f))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// 두 손가락 핀치만 감지하는 Modifier (한 손가락 스크롤은 그대로 통과)
+private fun Modifier.pinchToChangeColumns(
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit
+): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        var accumulatedZoom = 1f
+
+        do {
+            // Initial 패스: 그리드의 스크롤보다 "먼저" 이벤트를 받음
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+
+            if (event.changes.size >= 2) {                 // 손가락 2개 이상일 때만
+                accumulatedZoom *= event.calculateZoom()
+
+                if (accumulatedZoom > 1.25f) {             // 25% 이상 벌림
+                    onZoomIn()
+                    accumulatedZoom = 1f
+                } else if (accumulatedZoom < 0.8f) {       // 20% 이상 오므림
+                    onZoomOut()
+                    accumulatedZoom = 1f
+                }
+                // 핀치 중엔 이벤트를 소비 → 그리드가 스크롤하지 않음
+                event.changes.forEach { it.consume() }
+            }
+        } while (event.changes.any { it.pressed })
     }
 }
 
@@ -592,5 +772,5 @@ fun PhotoGrid(
 )
 @Composable
 private fun HomeScreenPreview() {
-    HomeScreen()
+    HomeScreen(onPhotoClick = {})
 }
